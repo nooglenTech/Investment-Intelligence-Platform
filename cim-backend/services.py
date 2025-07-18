@@ -4,12 +4,15 @@ import fitz  # PyMuPDF
 from openai import OpenAI
 
 # Initialize the OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=60.0)  # Added a 60-second timeout
 
+# The System prompt now only contains the instructions
 SYSTEM_PROMPT = """
-You are a top-tier private equity analyst. Your task is to analyze the following Confidential Information Memorandum (CIM) or teaser text and extract key details for investment review.
+You are a top-tier private equity analyst. Your task is to analyze the provided Confidential Information Memorandum (CIM) or teaser text and return a structured JSON object.
 
-Return a JSON object with the following structure:
+Your goal is to extract only **explicitly stated** information. You may not infer, estimate, or assume values that are not clearly supported by the document. If something is not clearly present, return \"N/A\".
+
+The JSON object must follow this exact structure:
 
 {
   "company": {
@@ -18,30 +21,50 @@ Return a JSON object with the following structure:
   },
   "industry": "[Primary industry and sub-industry]",
   "financials": {
-    "revenue": "[e.g., $120M, CAGR: 12%]",
-    "ebitda": "[e.g., $25M]",
-    "margin": "[e.g., EBITDA Margin: 21%]",
-    "gross_margin": "[e.g., 45% or N/A]",
-    "capex": "[e.g., $3M or N/A]",
-    "capex_pct_revenue": "[e.g., 2.5% or N/A]",
-    "fcf": "[e.g., $15M or N/A]"
+    "revenue": "[Explicit value (e.g., '$120M', 'N/A')]",
+    "ebitda": "[Explicit value or 'N/A']",
+    "margin": "[Explicit EBITDA or operating margin (e.g., '21%') or 'N/A']",
+    "gross_margin": "[Explicit gross margin value or 'N/A']",
+    "capex": "[Only include reported, realized capital expenditures. Do NOT include forward-looking 'capex plans'. If no actuals are stated, return 'N/A']",
+    "capex_pct_revenue": "[Only calculate if both capex and revenue are present and clearly stated. Otherwise return 'N/A']",
+    "fcf": "[Free cash flow, if stated. Otherwise return 'N/A']"
   },
   "thesis": "- [1 sentence]\\n- [2 sentence]\\n- [3 sentence]",
   "red_flags": "- [1 sentence]\\n- [2 sentence]\\n- [3 sentence]",
-  "summary": "[Concise paragraph under 200 words summarizing the investment opportunity]",
-  "mobile_friendly": "1. 📌 Company: [Company Name]\\n   🔍 Description: [One-liner]\\n\\n2. 📊 Financials:\\n   - Revenue: $XXXM (CAGR: X%)\\n   - EBITDA: $XXXM (Margin: X%)\\n   - Gross Margin: X%\\n   - Capex: $XXM (% of Revenue: X%)\\n   - FCF: $XXM",
-  "confidence_score": [0–100]
+  "summary": "[Concise paragraph under 200 words summarizing the investment opportunity using only verifiable information]",
+  "confidence_score": [Integer from 0–100, representing % of fields extracted from clearly labeled data tables or numbers. Return 100 only if all numeric values were explicitly available.],
+  "flagged_fields": ["List any fields that are based on soft language such as 'expected', 'targeted', 'estimated', or derived from context instead of explicit numbers. Otherwise return an empty array."],
+  "confidence_breakdown": {
+    "company": 0,
+    "industry": 0,
+    "financials": {
+      "revenue": 0,
+      "ebitda": 0,
+      "margin": 0,
+      "gross_margin": 0,
+      "capex": 0,
+      "capex_pct_revenue": 0,
+      "fcf": 0
+    },
+    "thesis": 0,
+    "red_flags": 0,
+    "summary": 0
+  },
+  "low_confidence_flags": [
+    "capex: Value appears to be from a capex *plan*, not actuals.",
+    "revenue: Projected figure for 2025, not current revenue."
+  ]
 }
 
 Rules:
-- Only include fields that are explicitly stated or confidently inferred from the text.
-- Use "N/A" for any field that is not clearly present.
-- Ensure all financial values are in consistent, human-readable units (e.g., "$125M", "20%", etc.).
-- Keep all bullet points tight, decision-useful, and written in clear business English.
+- Do not use projected or aspirational values in place of actuals.
+- Do not compute ratios unless both underlying figures are clearly provided.
+- Do not use generic descriptive statements in place of financials.
+- Use \"N/A\" aggressively when values are unclear, forward-looking, or absent.
+- All outputs must be in clean, human-readable units (e.g., \"$135M\", \"23%\").
+- If any value is estimated, forward-looking, or loosely inferred, include an explanation in `low_confidence_flags` and reduce the corresponding score in `confidence_breakdown`. Do not hallucinate figures. Always prefer \u201cN/A\u201d over guessing.
 
-[BEGIN INPUT TEXT]
-{{deck_text}}
-[END INPUT TEXT]
+Your output will be parsed and displayed to investment professionals — avoid any hallucination or overconfidence. If in doubt, label the field as \"N/A\" and flag it in `flagged_fields`.
 """
 
 def extract_text_from_pdf(file_stream) -> str:
@@ -61,14 +84,12 @@ def analyze_document_text(text: str) -> dict:
         # Truncate text to be safe with API token limits
         truncated_text = text[:120000]
 
-        # Inject the text into the system prompt template
-        formatted_prompt = SYSTEM_PROMPT.replace("{{deck_text}}", truncated_text)
-
         response = client.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-4.1-nano",  # Using a cost-effective and capable model
             response_format={"type": "json_object"},
             messages=[
-                {"role": "user", "content": formatted_prompt}
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": truncated_text}
             ]
         )
         return json.loads(response.choices[0].message.content)
