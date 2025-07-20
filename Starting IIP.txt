@@ -1,0 +1,24 @@
+Database
+Open the Docker Desktop application.
+
+Open a terminal.
+
+docker start pe-postgres
+
+Backend Server
+Open the cim-backend folder in VS Code.
+
+Open a terminal in VS Code.
+
+.\venv\Scripts\activate
+
+py main.py
+
+Ngrok Tunnel
+Open a second, separate terminal.
+
+cd ~/Downloads
+
+.\ngrok.exe http 8000
+
+Go into retool resources to update the link to match the one posted by ngrok
