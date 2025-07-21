@@ -1,127 +1,183 @@
-# Investment Insight Platform (IIP)
+# 💼 Investment Insight Platform (IIP)
 
-This document outlines the UI/UX design proposal and operational instructions for the Investment Insight Platform (IIP). The platform is designed to blend the familiar, efficient UI of Reddit with a specific, bias-reducing workflow required for Confidential Information Memorandum (CIM) analysis.
+A full-stack, login-enabled internal platform to analyze Confidential Information Memorandums (CIMs), inspired by Reddit's feed design but structured to reduce groupthink and improve investment workflows.
 
 ---
 
 ## 🚀 Getting Started & How to Run
 
-Follow these steps to get the platform running locally.
+Follow these instructions to run the app locally.
 
-### 1. Database (PostgreSQL)
+### 1. 🐘 Start PostgreSQL (Database)
 
-First, ensure your Docker container for the PostgreSQL database is running.
+Make sure Docker is running and start the PostgreSQL container:
 
-1.  Open the **Docker Desktop** application.
-2.  Open a terminal and run the following command:
-    ```bash
-    docker start pe-postgres
-    ```
+```bash
+docker start pe-postgres
+```
 
-### 2. Backend Server (Python)
+### 2. 🐍 Start the Backend Server (Python + FastAPI)
 
-Next, activate the Python virtual environment and start the backend server.
+Activate your Python virtual environment and run the backend server:
 
-1.  Open the `cim-backend` folder in VS Code.
-2.  Open a new terminal within VS Code.
-3.  Activate the virtual environment:
-    ```bash
-    .\venv\Scripts\activate
-    ```
-4.  Run the main application file:
-    ```python
-    py main.py
-    ```
+```bash
+cd cim-backend
+.\venv\Scripts\activate
+py main.py
+```
 
-### 3. Ngrok Tunnel
+### 3. 🌐 Expose API with Ngrok (for Retool or Frontend Access)
 
-Finally, expose your local server to the internet using Ngrok to connect with Retool.
+Open a new terminal, navigate to your Ngrok directory, and run:
 
-1.  Open a second, separate terminal window.
-2.  Navigate to your Ngrok executable's directory (e.g., Downloads):
-    ```bash
-    cd ~/Downloads
-    ```
-3.  Start the tunnel, pointing it to the local port your backend is running on (port 8000):
-    ```bash
-    .\ngrok.exe http 8000
-    ```
-4.  Go into your **Retool resources** and update the backend API endpoint with the new forwarding URL provided by Ngrok.
+```bash
+cd ~/Downloads
+.\ngrok.exe http 8000
+```
+
+Copy the forwarding URL (e.g., `https://abc123.ngrok.io`) and paste it into your Retool resource or frontend config.
 
 ---
 
-## UI/UX Design Proposal
+## 🧱 Platform Architecture
 
-> ### **Core Principle: "Analysis Before Influence"**
-> Every design decision is guided by this principle. A user must provide their own analysis before they can see the analysis of their teammates to reduce confirmation bias.
+| Layer           | Technology         |
+|----------------|--------------------|
+| Frontend       | Retool / React     |
+| Backend        | FastAPI (Python)   |
+| Database       | PostgreSQL (Docker)|
+| AI Analysis    | OpenAI GPT-4       |
+| Storage        | AWS S3 (PDF uploads) |
+| Hosting        | AWS (EC2/S3/Elastic Beanstalk planned) |
+| Authentication | Full login/signup support (planned via Auth0 or custom JWT) |
 
 ---
 
-## Page 1: The Deal Flow Dashboard (The "Home Page")
+## 🔒 Platform Capabilities
 
-This is the main screen users see upon logging in. It provides a clean, high-level overview of all active and past deals in a feed-style layout.
+### ✅ Core Features
+
+- Secure **login** for each team member.
+- Upload **CIM PDFs** and auto-generate structured AI analysis.
+- **"Blind feedback" workflow** — users must submit their own analysis before viewing team comments.
+- Clean Reddit-style feed of all current and past deals.
+- **Tagging & status badges** to organize pipeline progress.
+- Persistent storage of CIMs and analysis data using **PostgreSQL**.
+- File storage (PDFs, metadata) in **AWS S3**.
+- **Notifications** when new CIMs are uploaded (email/in-app planned).
+
+---
+
+## 🎨 UI/UX Design Summary
+
+> ### "Analysis Before Influence"
+> The user experience enforces independent thought before peer influence.
+
+---
+
+## 🏠 Page 1: Deal Flow Dashboard (Home)
+
+Displays all CIMs as cards in a scrollable feed.
 
 ### Layout
 
-* **Header**: A simple bar at the top containing:
-    * **Left**: Company/Team Logo and the platform name ("IIP").
-    * **Right**: A prominent **`+ Upload CIM`** button, a search bar, and a user profile icon.
-* **Main Content Area**: A feed of "CIM Posts," styled professionally for data-driven analysis. Each post is a self-contained card.
-
-### The "CIM Post" Card
-
-Each card in the feed represents a single CIM and contains essential, at-a-glance information.
-
-* **CIM Title**: e.g., "Project Titan - SaaS Acquisition" (derived from the filename).
-* **AI-Generated Tags**: A row of tags pulled from the AI summary (e.g., `Industry: Enterprise SaaS`, `Stage: Growth Equity`, `Revenue: $25M ARR`) for quick filtering.
-* **Status Badge**: A colored badge indicating the user's required action:
-    * 🔵 **Feedback Required**: You have not submitted your feedback yet.
-    * 🟢 **Review Complete**: You have submitted your feedback.
-    * ⚪ **Archived**: The deal process is complete.
-* **Action Button**: A single, clear button: **`View Analysis & Add Feedback`**.
+- **Header Bar**:
+  - Left: Team logo + “IIP”
+  - Right: `+ Upload CIM`, search bar, user profile
+- **CIM Post Card**:
+  - 📄 Title: e.g. “Project Titan – SaaS Acquisition”
+  - 🏷️ Tags: Industry, Stage, Revenue
+  - 🟢 Status Badge:
+    - 🔵 Feedback Required
+    - 🟢 Review Complete
+    - ⚪ Archived
+  - 🔎 Action: `View Analysis & Add Feedback`
 
 ---
 
-## Page 2: The Analysis & Feedback Page
+## 📊 Page 2: Analysis & Feedback View
 
-Clicking `View Analysis & Add Feedback` takes the user to this page, which features a two-column layout.
+Clicking a CIM card opens a two-column analysis + feedback view.
 
-### Column 1: AI-Generated Analysis (The "Report")
+### Left Column: AI-Generated Report
 
-This column is dedicated to the structured JSON output from the backend, presented in a clean, readable format with collapsible sections.
+- Company
+- Industry
+- Financials (actuals vs. estimates)
+- Investment Thesis
+- Red Flags
+- Summary
+- Confidence Score
 
-* **Header**: CIM Title.
-* **Sections**:
-    * Executive Summary (expanded by default)
-    * Financials (key metrics, charts)
-    * Products & Services
-    * Market & Competition
-    * Key Risks & Mitigants
-    * Team
+Rendered cleanly with collapsible sections.
 
-### Column 2: The "Blind" Feedback Module
+### Right Column: Blind Feedback Module
 
-This is the most critical part of the UX. Its appearance changes based on whether the user has submitted their feedback.
+#### State A: Feedback Not Submitted
 
-* **State A: User Has NOT Submitted Feedback**
-    * A large, inviting text area is the main focus, prompted with: **"What is your initial analysis? Please outline your key thoughts, questions, and concerns below."**
-    * A single action button: **`Submit & View Team Feedback`**.
-    * A message below the module reads: *"The team's feedback will become visible once you submit your own analysis."* No hints are given about the number of comments or who has commented.
+- Large text box prompt:  
+  _"What is your initial analysis? Outline key thoughts, questions, concerns."_
+- Action button: `Submit & View Team Feedback`
+- No hints about other comments shown
 
-* **State B: User HAS Submitted Feedback**
-    * The input text area is replaced by a read-only view of **"Your Submitted Analysis."**
-    * Below this, the **"Team Feedback"** section appears.
-    * **Anonymity**: Each comment is presented in a simple card with only the text and a relative timestamp (e.g., "Submitted 2 hours ago"). No names or profile pictures are displayed.
+#### State B: Feedback Submitted
+
+- Your submitted analysis shown read-only
+- Anonymous feedback from team members appears below
+- Each comment shows **text only** and **relative timestamp** (e.g., “2h ago”)
 
 ---
 
-## The Workflow in Action
+## 🔁 Workflow in Action
 
-This design directly enables the core function of gathering blind, anonymous feedback from team members.
+1. **Upload CIM** → File is parsed, analyzed, and posted
+2. **Team Notification** → (Coming soon) everyone is alerted to review
+3. **Individual Review** → Team members view AI report but not each other's thoughts
+4. **Submit Analysis** → User submits feedback
+5. **View Team** → Blind feedback is revealed post-submission
+6. **Discuss** → Meeting or chat can now happen with unbiased inputs
 
-1.  **Upload**: A team member clicks **`+ Upload CIM`**. The file is processed by the backend, and the deal appears on the dashboard.
-2.  **Notification** (Future Feature): The system notifies all team members that a new CIM is ready for review.
-3.  **Individual Review**: Each team member logs in and sees the new CIM on their dashboard with the 🔵 **Feedback Required** status.
-4.  **Forced Independent Thought**: They click into the Analysis Page. They can read the AI summary but **cannot** see any colleague's thoughts. They are forced to form their own opinion and write it down.
-5.  **Reveal**: Once they click **`Submit & View Team Feedback`**, their analysis is saved, and they immediately see the anonymous thoughts of everyone else who has already commented.
-6.  **Unbiased Discussion**: With all independent thoughts documented, the team can now proceed to a discussion or meeting, having minimized initial groupthink and confirmation bias.
+---
+
+## 🧠 Future Enhancements
+
+- 🔔 Slack/Email notifications for new deals
+- 📆 Due date & reminder tracking
+- 🔍 Advanced search/filtering
+- 👥 Role-based access control
+- 📥 Integrated chat or comments
+- 🧾 Export to memo format
+
+---
+
+## 📁 File Locations
+
+| File/Folder       | Purpose                        |
+|-------------------|--------------------------------|
+| `main.py`         | FastAPI app entry point        |
+| `services.py`     | PDF parsing + AI prompt logic  |
+| `models.py`       | SQLAlchemy DB schema           |
+| `requirements.txt`| All backend dependencies       |
+| `AnalysisCard.tsx`| Frontend display component     |
+
+---
+
+## 📦 Dependencies
+
+Key backend packages (see `requirements.txt`):
+
+- `fastapi`
+- `sqlalchemy`
+- `openai`
+- `PyMuPDF`
+- `psycopg2-binary`
+- `python-dotenv`
+- `uvicorn`
+- `pydantic`
+- `python-multipart`
+
+---
+
+## 📬 Contact
+
+For internal use at **Author Capital Partners**. Reach out to Jet for access or deployment help.
