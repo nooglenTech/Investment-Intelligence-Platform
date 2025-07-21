@@ -1,12 +1,22 @@
+####################
+
 import os
 import json
 import fitz  # PyMuPDF
 from openai import OpenAI
+import boto3
+from botocore.exceptions import NoCredentialsError
 
-# Initialize the OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=60.0)  # Added a 60-second timeout
+# Initialize clients from environment variables
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=60.0)
+S3_BUCKET = os.getenv("S3_BUCKET_NAME")
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    region_name=os.getenv('AWS_REGION')
+)
 
-# The System prompt now only contains the instructions
 SYSTEM_PROMPT = """
 You are a top-tier private equity analyst. Your task is to analyze the provided Confidential Information Memorandum (CIM) or teaser text and return a structured JSON object.
 
@@ -91,10 +101,29 @@ Return your response in the exact following JSON structure:
 }
 """
 
+def upload_to_s3(file_stream, file_name: str) -> str:
+    """Uploads a file stream to S3 and returns the URL."""
+    if not S3_BUCKET:
+        raise ValueError("S3_BUCKET_NAME environment variable is not set.")
+    try:
+        s3_client.upload_fileobj(file_stream, S3_BUCKET, file_name)
+        # Construct the object URL
+        return f"https://{S3_BUCKET}.s3.amazonaws.com/{file_name}"
+    except NoCredentialsError:
+        print("AWS credentials not found.")
+        raise
+    except Exception as e:
+        print(f"Error uploading to S3: {e}")
+        raise
+
 def extract_text_from_pdf(file_stream) -> str:
     """Extracts text from a PDF file stream."""
     try:
-        doc = fitz.open(stream=file_stream.read(), filetype="pdf")
+        # Reading the stream into memory to be used by both PyMuPDF and S3
+        file_content = file_stream.read()
+        file_stream.seek(0) # Reset stream pointer for S3 upload
+        
+        doc = fitz.open(stream=file_content, filetype="pdf")
         text = "".join(page.get_text() for page in doc)
         doc.close()
         return text
@@ -105,11 +134,9 @@ def extract_text_from_pdf(file_stream) -> str:
 def analyze_document_text(text: str) -> dict:
     """Sends document text to OpenAI for analysis."""
     try:
-        # Truncate text to be safe with API token limits
         truncated_text = text[:120000]
-
         response = client.chat.completions.create(
-            model="gpt-4.1-nano",  # Using a cost-effective and capable model
+            model="gpt-4o-mini",  # Corrected to a valid, powerful model
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

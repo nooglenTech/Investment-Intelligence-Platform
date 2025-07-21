@@ -6,49 +6,92 @@ A full-stack, login-enabled internal platform to analyze Confidential Informatio
 
 ## 🚀 Getting Started & How to Run
 
-Follow these instructions to run the app locally.
+Follow these instructions to run the full-stack application locally, connected to your live AWS and OpenAI services.
 
-### 1. 🐘 Start PostgreSQL (Database)
+### Prerequisites
 
-Make sure Docker is running and start the PostgreSQL container:
+* An AWS Account with S3 and RDS configured.
+* An OpenAI API Key.
+* Python 3.9+ and `pip`.
+* Node.js (v16+) and `npm` or `yarn`.
 
-```bash
-docker start pe-postgres
-```
+### 1. Configure Backend Environment
 
-### 2. 🐍 Start the Backend Server (Python + FastAPI)
+Before running the backend, you must provide it with the necessary API keys and service endpoints.
 
-Activate your Python virtual environment and run the backend server:
+1.  Navigate into the `cim-backend` directory.
+2.  Create a file named `.env`.
+3.  Copy the block below into your new `.env` file and replace the placeholder values with your actual secret keys and URLs.
 
-```bash
-cd cim-backend
-.\venv\Scripts\activate
-py main.py
-```
+    ```bash
+    # .env file for local development
+    
+    # Found in AWS RDS -> Your DB -> Connectivity & security
+    DATABASE_URL="postgresql://YOUR_DB_USER:YOUR_DB_PASSWORD@YOUR_RDS_ENDPOINT:5432/postgres"
+    
+    # Found at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+    OPENAI_API_KEY="sk-..."
+    
+    # Found in the AWS S3 Console
+    S3_BUCKET_NAME="your-s3-bucket-name"
+    AWS_REGION="your-aws-region" # e.g., us-east-1
+    
+    # Found in AWS IAM -> Users -> Your User -> Security credentials -> Create access key
+    AWS_ACCESS_KEY_ID="AKIA..."
+    AWS_SECRET_ACCESS_KEY="..."
+    ```
 
-### 3. 🌐 Expose API with Ngrok (for Retool or Frontend Access)
+### 2. Run the Backend Server (Python + FastAPI)
 
-Open a new terminal, navigate to your Ngrok directory, and run:
+1.  From the `cim-backend` directory, create a Python virtual environment and install the required packages:
 
-```bash
-cd ~/Downloads
-.\ngrok.exe http 8000
-```
+    ```bash
+    # Create the virtual environment
+    py -m venv venv
 
-Copy the forwarding URL (e.g., `https://abc123.ngrok.io`) and paste it into your Retool resource or frontend config.
+    # Activate it (Windows)
+    .\venv\Scripts\activate
+
+    # Install dependencies
+    cd cim-backend
+    pip install -r requirements.txt
+    ```
+
+2.  With your virtual environment activated, start the server:
+
+    ```bash
+    uvicorn main:app --reload
+    ```
+    The backend API is now running and accessible at `http://localhost:8000`.
+
+### 3. Run the Frontend Server (Next.js)
+
+1.  In a **new terminal**, navigate to your `iip-frontend` directory.
+2.  Install the Node.js dependencies:
+
+    ```bash
+    npm install
+    ```
+
+3.  Start the frontend development server:
+
+    ```bash
+    npm run dev
+    ```
+    The web application is now running and accessible at `http://localhost:3000`.
 
 ---
 
 ## 🧱 Platform Architecture
 
-| Layer           | Technology         |
+| Layer           | Technology         |
 |----------------|--------------------|
-| Frontend       | Retool / React     |
-| Backend        | FastAPI (Python)   |
-| Database       | PostgreSQL (Docker)|
-| AI Analysis    | OpenAI GPT-4       |
-| Storage        | AWS S3 (PDF uploads) |
-| Hosting        | AWS (EC2/S3/Elastic Beanstalk planned) |
+| Frontend       | Retool / React     |
+| Backend        | FastAPI (Python)   |
+| Database       | PostgreSQL (Docker)|
+| AI Analysis    | OpenAI GPT-4       |
+| Storage        | AWS S3 (PDF uploads) |
+| Hosting        | AWS (EC2/S3/Elastic Beanstalk planned) |
 | Authentication | Full login/signup support (planned via Auth0 or custom JWT) |
 
 ---
@@ -82,16 +125,16 @@ Displays all CIMs as cards in a scrollable feed.
 ### Layout
 
 - **Header Bar**:
-  - Left: Team logo + “IIP”
-  - Right: `+ Upload CIM`, search bar, user profile
+  - Left: Team logo + “IIP”
+  - Right: `+ Upload CIM`, search bar, user profile
 - **CIM Post Card**:
-  - 📄 Title: e.g. “Project Titan – SaaS Acquisition”
-  - 🏷️ Tags: Industry, Stage, Revenue
-  - 🟢 Status Badge:
-    - 🔵 Feedback Required
-    - 🟢 Review Complete
-    - ⚪ Archived
-  - 🔎 Action: `View Analysis & Add Feedback`
+  - 📄 Title: e.g. “Project Titan – SaaS Acquisition”
+  - 🏷️ Tags: Industry, Stage, Revenue
+  - 🟢 Status Badge:
+    - 🔵 Feedback Required
+    - 🟢 Review Complete
+    - ⚪ Archived
+  - 🔎 Action: `View Analysis & Add Feedback`
 
 ---
 
@@ -115,8 +158,8 @@ Rendered cleanly with collapsible sections.
 
 #### State A: Feedback Not Submitted
 
-- Large text box prompt:  
-  _"What is your initial analysis? Outline key thoughts, questions, concerns."_
+- Large text box prompt:  
+  _"What is your initial analysis? Outline key thoughts, questions, concerns."_
 - Action button: `Submit & View Team Feedback`
 - No hints about other comments shown
 
@@ -152,13 +195,13 @@ Rendered cleanly with collapsible sections.
 
 ## 📁 File Locations
 
-| File/Folder       | Purpose                        |
+| File/Folder       | Purpose                        |
 |-------------------|--------------------------------|
-| `main.py`         | FastAPI app entry point        |
-| `services.py`     | PDF parsing + AI prompt logic  |
-| `models.py`       | SQLAlchemy DB schema           |
-| `requirements.txt`| All backend dependencies       |
-| `AnalysisCard.tsx`| Frontend display component     |
+| `main.py`         | FastAPI app entry point        |
+| `services.py`     | PDF parsing + AI prompt logic  |
+| `models.py`       | SQLAlchemy DB schema           |
+| `requirements.txt`| All backend dependencies       |
+| `AnalysisCard.tsx`| Frontend display component     |
 
 ---
 
