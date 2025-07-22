@@ -5,8 +5,7 @@ from openai import OpenAI
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 
-# ... (client initializations remain the same) ...
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=60.0)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=90.0)
 S3_BUCKET = os.getenv("S3_BUCKET_NAME")
 s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'), aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'), region_name=os.getenv('AWS_REGION'))
 
@@ -62,7 +61,6 @@ Only return "N/A" if there are fewer than 2 usable years for a given metric.
 
 ---
 
-
 You MUST compute and return a top-level `"growth"` field in the output.
 
 This field must include:
@@ -75,7 +73,6 @@ This field must include:
 ⚠️ If only one data point exists, set the value to `"N/A"` but still include the field.
 
 The final JSON must include this section. Do not omit it under any condition.
-
 
 
 📝 STRUCTURED OUTPUT FORMAT:
@@ -155,30 +152,44 @@ The final JSON must include this section. Do not omit it under any condition.
 """
 
 
-def upload_to_s3(file_stream, file_name: str) -> str:
-    # ... (this function remains the same) ...
+
+# *** NEW FUNCTION ***
+def get_s3_object_stream(file_name: str):
+    """Gets a streaming body of an object from S3."""
     if not S3_BUCKET:
         raise ValueError("S3_BUCKET_NAME environment variable is not set.")
+    try:
+        s3_object = s3_client.get_object(Bucket=S3_BUCKET, Key=file_name)
+        return s3_object['Body']
+    except ClientError as e:
+        print(f"Error getting object from S3: {e}")
+        return None
+
+def upload_to_s3(file_stream, file_name: str) -> str:
+    # ... (this function remains the same) ...
+    if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
     try:
         s3_client.upload_fileobj(file_stream, S3_BUCKET, file_name)
         return f"https://{S3_BUCKET}.s3.amazonaws.com/{file_name}"
-    except Exception as e:
-        print(f"Error uploading to S3: {e}")
-        raise
+    except Exception as e: raise e
 
-# *** NEW FUNCTION ***
 def delete_from_s3(file_name: str):
-    """Deletes a file from the S3 bucket."""
+    # ... (this function remains the same) ...
+    if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
+    try:
+        s3_client.delete_object(Bucket=S3_BUCKET, Key=file_name)
+    except Exception as e: print(f"Error deleting {file_name} from S3: {e}")
+
+# This function is no longer needed for viewing, but we'll keep it for other potential uses.
+def create_presigned_url(file_name: str, expiration=3600) -> str:
     if not S3_BUCKET:
         raise ValueError("S3_BUCKET_NAME environment variable is not set.")
     try:
-        s3_client.delete_object(Bucket=S3_BUCKET, Key=file_name)
-        print(f"Successfully deleted {file_name} from S3 bucket {S3_BUCKET}.")
+        response = s3_client.generate_presigned_url('get_object', Params={'Bucket': S3_BUCKET, 'Key': file_name}, ExpiresIn=expiration)
     except ClientError as e:
-        print(f"Error deleting {file_name} from S3: {e}")
-        # Don't re-raise, as we still want to delete the DB record
-    except Exception as e:
-        print(f"An unexpected error occurred during S3 deletion: {e}")
+        print(f"Error generating presigned URL: {e}")
+        return None
+    return response
 
 def extract_text_from_pdf(file_stream) -> str:
     # ... (this function remains the same) ...
@@ -191,13 +202,10 @@ def extract_text_from_pdf(file_stream) -> str:
 
 def analyze_document_text(text: str) -> dict:
     # ... (this function remains the same) ...
-    truncated_text = text[:120000]
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": truncated_text}
-        ]
-    )
-    return json.loads(response.choices[0].message.content)
+    try:
+        truncated_text = text[:120000]
+        response = client.chat.completions.create( model="gpt-4o-mini", response_format={"type": "json_object"}, messages=[ {"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": truncated_text} ] )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        print(f"Error calling OpenAI API: {e}")
+        return {"error": "Failed to analyze document."}
