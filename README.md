@@ -81,33 +81,86 @@ Before running the backend, you must provide it with the necessary API keys and 
     The web application is now running and accessible at `http://localhost:3000`.
 
 ---
+# 💼 Investment Insight Platform (IIP)
 
-## 🧱 Platform Architecture
-
-| Layer           | Technology         |
-|----------------|--------------------|
-| Frontend       | Retool / React     |
-| Backend        | FastAPI (Python)   |
-| Database       | PostgreSQL (Docker)|
-| AI Analysis    | OpenAI GPT-4       |
-| Storage        | AWS S3 (PDF uploads) |
-| Hosting        | AWS (EC2/S3/Elastic Beanstalk planned) |
-| Authentication | Full login/signup support (planned via Auth0 or custom JWT) |
+A full-stack, AI-powered internal platform to streamline the analysis of Confidential Information Memorandums (CIMs), reduce groupthink through a blind-feedback workflow, and integrate external market data for more informed decision-making.
 
 ---
 
-## 🔒 Platform Capabilities
+## 🚀 Getting Started & How to Run
 
-### ✅ Core Features
+Follow these instructions to run the full-stack application locally, connected to your live AWS and OpenAI services.
 
-- Secure **login** for each team member.
-- Upload **CIM PDFs** and auto-generate structured AI analysis.
-- **"Blind feedback" workflow** — users must submit their own analysis before viewing team comments.
-- Clean Reddit-style feed of all current and past deals.
-- **Tagging & status badges** to organize pipeline progress.
-- Persistent storage of CIMs and analysis data using **PostgreSQL**.
-- File storage (PDFs, metadata) in **AWS S3**.
-- **Notifications** when new CIMs are uploaded (email/in-app planned).
+### Prerequisites
+
+* An AWS Account with S3 and RDS configured.
+* An OpenAI API Key.
+* Python 3.9+ and `pip`.
+* Node.js (v16+) and `npm` or `yarn`.
+
+### 1. Configure Backend Environment
+
+Before running the backend, you must provide it with the necessary API keys and service endpoints.
+
+1.  Navigate into the `cim-backend` directory.
+2.  Create a file named `.env`.
+3.  Copy the block below into your new `.env` file and replace the placeholder values with your actual secret keys and URLs.
+
+    ```bash
+    # .env file for local development
+    DATABASE_URL="postgresql://YOUR_DB_USER:YOUR_DB_PASSWORD@YOUR_RDS_ENDPOINT:5432/postgres"
+    OPENAI_API_KEY="sk-..."
+    S3_BUCKET_NAME="your-s3-bucket-name"
+    AWS_REGION="your-aws-region" # e.g., us-east-1
+    AWS_ACCESS_KEY_ID="AKIA..."
+    AWS_SECRET_ACCESS_KEY="..."
+    ```
+
+### 2. Run the Backend & Frontend Servers
+
+Follow the instructions in the original `README.md` to start both the Python backend and the Next.js frontend servers in separate terminals.
+
+---
+
+## 🧱 Platform Architecture
+
+| Layer          | Technology                     | Purpose                               |
+|----------------|--------------------------------|---------------------------------------|
+| Frontend       | Next.js (React)                | User Interface & Experience           |
+| Backend        | FastAPI (Python)               | API, Business Logic, Orchestration    |
+| Database       | PostgreSQL (AWS RDS)           | Storing deal, feedback & analysis data|
+| AI Analysis    | OpenAI GPT-4 Series            | CIM text analysis & summarization     |
+| File Storage   | AWS S3                         | Storing uploaded PDF documents        |
+| External Data  | GF Data API (Planned)          | Live private market transaction data  |
+| Hosting        | AWS Amplify & Elastic Beanstalk (Planned) | Scalable deployment for frontend/backend |
+| Authentication | Clerk / Auth0 (Planned)        | Secure user login and management      |
+
+---
+
+## 🗺️ Project Roadmap & Future Enhancements
+
+This project is designed to evolve from a CIM analysis tool into a comprehensive deal evaluation platform.
+
+### Phase 1: Core Functionality (In Progress)
+
+* [✅] **AI-Powered CIM Analysis:** Upload CIM PDFs to AWS S3 and auto-generate a detailed, structured summary using OpenAI.
+* [✅] **Persistent Storage:** Store all deal data and analysis in a secure AWS RDS PostgreSQL database.
+* [✅] **Blind Feedback Workflow:** Users must submit their own qualitative and quantitative feedback before viewing anonymous team comments, reducing cognitive bias.
+* [✅] **Interactive Dashboard:** A clean, Reddit-style feed of all deals, showing key financial metrics at a glance.
+* [ ] **Secure User Login:** Implement a full authentication system for team members.
+* [ ] **View/Download CIM:** Add a button to each deal page to open the original PDF from S3 in a new tab or an in-app viewer.
+
+### Phase 2: Intelligence & Workflow Automation (Next Steps)
+
+* **Advanced AI Summary:** Enhance the OpenAI prompt to be more nuanced and detailed. Add a dedicated "Growth Section" to extract and display historical and projected growth rates (CAGR) for Revenue, EBITDA, and FCF, as well as the industry's CAGR.
+* **Professional Feedback Module:** Evolve the star-rating system into a more professional set of inputs relevant to submitting an IOI (e.g., sliders or dropdowns for Valuation, Growth, Risk, etc.).
+* **Automated CIM Ingestion:** Develop a service to query a dedicated email inbox (e.g., `cims@yourfirm.com`), automatically extract PDF attachments, and create new deals in the IIP, transitioning from manual uploads.
+
+### Phase 3: Data Integration & Valuation Tools (Future Vision)
+
+* **GF Data Integration:** Connect to the GF Data API. On each deal page, automatically query for relevant industry transaction data based on the deal's NAICS code. Display valuation multiples (e.g., Revenue, EBITDA) in a graph or table to provide live market context for typical valuations.
+* **Valuation Graphics:** Develop interactive charts that model valuation ranges based on key inputs (e.g., growth rates, desired IRR, standard deviation, size premium) to enforce price discipline, similar to existing Excel models.
+* **Advanced Filtering & Search:** Implement a robust search and filtering system on the dashboard based on industry, size, status, and other key factors.
 
 ---
 
@@ -116,111 +169,4 @@ Before running the backend, you must provide it with the necessary API keys and 
 > ### "Analysis Before Influence"
 > The user experience enforces independent thought before peer influence.
 
----
-
-## 🏠 Page 1: Deal Flow Dashboard (Home)
-
-Displays all CIMs as cards in a scrollable feed.
-
-### Layout
-
-- **Header Bar**:
-  - Left: Team logo + “IIP”
-  - Right: `+ Upload CIM`, search bar, user profile
-- **CIM Post Card**:
-  - 📄 Title: e.g. “Project Titan – SaaS Acquisition”
-  - 🏷️ Tags: Industry, Stage, Revenue
-  - 🟢 Status Badge:
-    - 🔵 Feedback Required
-    - 🟢 Review Complete
-    - ⚪ Archived
-  - 🔎 Action: `View Analysis & Add Feedback`
-
----
-
-## 📊 Page 2: Analysis & Feedback View
-
-Clicking a CIM card opens a two-column analysis + feedback view.
-
-### Left Column: AI-Generated Report
-
-- Company
-- Industry
-- Financials (actuals vs. estimates)
-- Investment Thesis
-- Red Flags
-- Summary
-- Confidence Score
-
-Rendered cleanly with collapsible sections.
-
-### Right Column: Blind Feedback Module
-
-#### State A: Feedback Not Submitted
-
-- Large text box prompt:  
-  _"What is your initial analysis? Outline key thoughts, questions, concerns."_
-- Action button: `Submit & View Team Feedback`
-- No hints about other comments shown
-
-#### State B: Feedback Submitted
-
-- Your submitted analysis shown read-only
-- Anonymous feedback from team members appears below
-- Each comment shows **text only** and **relative timestamp** (e.g., “2h ago”)
-
----
-
-## 🔁 Workflow in Action
-
-1. **Upload CIM** → File is parsed, analyzed, and posted
-2. **Team Notification** → (Coming soon) everyone is alerted to review
-3. **Individual Review** → Team members view AI report but not each other's thoughts
-4. **Submit Analysis** → User submits feedback
-5. **View Team** → Blind feedback is revealed post-submission
-6. **Discuss** → Meeting or chat can now happen with unbiased inputs
-
----
-
-## 🧠 Future Enhancements
-
-- 🔔 Slack/Email notifications for new deals
-- 📆 Due date & reminder tracking
-- 🔍 Advanced search/filtering
-- 👥 Role-based access control
-- 📥 Integrated chat or comments
-- 🧾 Export to memo format
-
----
-
-## 📁 File Locations
-
-| File/Folder       | Purpose                        |
-|-------------------|--------------------------------|
-| `main.py`         | FastAPI app entry point        |
-| `services.py`     | PDF parsing + AI prompt logic  |
-| `models.py`       | SQLAlchemy DB schema           |
-| `requirements.txt`| All backend dependencies       |
-| `AnalysisCard.tsx`| Frontend display component     |
-
----
-
-## 📦 Dependencies
-
-Key backend packages (see `requirements.txt`):
-
-- `fastapi`
-- `sqlalchemy`
-- `openai`
-- `PyMuPDF`
-- `psycopg2-binary`
-- `python-dotenv`
-- `uvicorn`
-- `pydantic`
-- `python-multipart`
-
----
-
-## 📬 Contact
-
-For internal use at **Author Capital Partners**. Reach out to Jet for access or deployment help.
+The platform provides a clean, data-dense interface designed for efficiency. The two-column analysis view separates the objective AI report from the subjective team feedback, creating a clear workflow for evaluation.
