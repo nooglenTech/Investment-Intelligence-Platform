@@ -10,9 +10,10 @@ class FeedbackCreate(FeedbackBase):
 
 class Feedback(FeedbackBase):
     id: int
+    user_id: str # <-- ADD THIS LINE
     deal_id: int
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DealBase(BaseModel):
     file_name: str
@@ -22,6 +23,7 @@ class DealBase(BaseModel):
 
 class Deal(DealBase):
     id: int
+    user_id: str # <-- ADD THIS LINE
     feedbacks: List[Feedback] = []
     class Config:
-        orm_mode = True
+        from_attributes = True

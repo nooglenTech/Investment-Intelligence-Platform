@@ -154,7 +154,17 @@ The final JSON must include this section. Do not omit it under any condition.
 ```
 """
 
-# ... (rest of services.py remains the same)
+def get_s3_object_stream(file_name: str):
+    """Gets a streaming body of an object from S3."""
+    if not S3_BUCKET:
+        raise ValueError("S3_BUCKET_NAME environment variable is not set.")
+    try:
+        s3_object = s3_client.get_object(Bucket=S3_BUCKET, Key=file_name)
+        return s3_object['Body']
+    except ClientError as e:
+        print(f"Error getting object from S3: {e}")
+        return None
+
 def upload_to_s3(file_stream, file_name: str) -> str:
     if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
     try:
@@ -168,10 +178,12 @@ def delete_from_s3(file_name: str):
         s3_client.delete_object(Bucket=S3_BUCKET, Key=file_name)
     except Exception as e: print(f"Error deleting {file_name} from S3: {e}")
 
+# This function is kept for potential future use but is not used for the in-app viewer.
 def create_presigned_url(file_name: str, expiration=3600) -> str:
-    if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME environment variable is not set.")
+    if not S3_BUCKET:
+        raise ValueError("S3_BUCKET_NAME environment variable is not set.")
     try:
-        response = s3_client.generate_presigned_url('get_object', Params={'Bucket': S3_BUCKET, 'Key': file_name, 'ResponseContentDisposition': 'inline'}, ExpiresIn=expiration)
+        response = s3_client.generate_presigned_url('get_object', Params={'Bucket': S3_BUCKET, 'Key': file_name}, ExpiresIn=expiration)
     except ClientError as e:
         print(f"Error generating presigned URL: {e}")
         return None
