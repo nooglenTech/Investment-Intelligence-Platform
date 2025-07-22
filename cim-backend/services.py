@@ -9,6 +9,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=90.0)
 S3_BUCKET = os.getenv("S3_BUCKET_NAME")
 s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'), aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'), region_name=os.getenv('AWS_REGION'))
 
+# *** THIS IS THE NEW, UPGRADED PROMPT ***
 SYSTEM_PROMPT = """
 You are a top-tier private equity analyst. Your task is to analyze a Confidential Information Memorandum (CIM) or teaser text and return a structured, highly detailed JSON object for investment committee review.
 
@@ -81,7 +82,10 @@ The final JSON must include this section. Do not omit it under any condition.
 {
   "company": {
     "name": "[Company name]",
-    "description": "[One-sentence description of what the company does]"
+    "description": "[One-sentence high-level description]",
+    "business_model": "[How the company makes money, e.g., SaaS subscriptions, project-based revenue, etc.]",
+    "products_services": "[List of key products or services offered]",
+    "customer_base": "[Description of the typical customer, e.g., SMBs, enterprise, specific demographics]"
   },
   "industry": "[Primary industry and sub-industry]",
   "financials": {
@@ -109,13 +113,12 @@ The final JSON must include this section. Do not omit it under any condition.
       "projected_revenue_cagr": "-3.4% (2023–2024)",
       "historical_fcf_cagr": "N/A",
       "projected_fcf_cagr": "N/A",
-      "growth_commentary": "- Revenue declined in 2023 and is projected to fall further in 2024.\n- Projected CAGR is negative, indicating a period of potential contraction.\n- Strong backlog may provide recovery buffer in out years."
-}
-
-  "thesis": "- [Bullet point 1]\n- [Bullet point 2]\n- [Bullet point 3]",
-  "red_flags": "- [Bullet point 1]\n- [Bullet point 2]\n- [Bullet point 3]",
+      "growth_commentary": "- Revenue declined in 2023 and is projected to fall further in 2024.\\n- Projected CAGR is negative, indicating a period of potential contraction.\\n- Strong backlog may provide recovery buffer in out years."
+},
+  "thesis": "- [Bullet point 1]\\n- [Bullet point 2]\\n- [Bullet point 3]",
+  "red_flags": "- [Bullet point 1]\\n- [Bullet point 2]\\n- [Bullet point 3]",
   "summary": "[Detailed summary (300–450 words), clear, data-rich, and free of fluff. Summarize financial performance, product model, customers, headwinds, and competitive position.]",
-  "confidence_score": [0–100],
+  "confidence_score": 0,
   "flagged_fields": ["List all vague, projected, or estimated fields"],
   "confidence_breakdown": {
     "company": 0,
@@ -148,25 +151,11 @@ The final JSON must include this section. Do not omit it under any condition.
     "capex: future year value provided with no historical baseline"
   ]
 }
-
+```
 """
 
-
-
-# *** NEW FUNCTION ***
-def get_s3_object_stream(file_name: str):
-    """Gets a streaming body of an object from S3."""
-    if not S3_BUCKET:
-        raise ValueError("S3_BUCKET_NAME environment variable is not set.")
-    try:
-        s3_object = s3_client.get_object(Bucket=S3_BUCKET, Key=file_name)
-        return s3_object['Body']
-    except ClientError as e:
-        print(f"Error getting object from S3: {e}")
-        return None
-
+# ... (rest of services.py remains the same)
 def upload_to_s3(file_stream, file_name: str) -> str:
-    # ... (this function remains the same) ...
     if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
     try:
         s3_client.upload_fileobj(file_stream, S3_BUCKET, file_name)
@@ -174,25 +163,21 @@ def upload_to_s3(file_stream, file_name: str) -> str:
     except Exception as e: raise e
 
 def delete_from_s3(file_name: str):
-    # ... (this function remains the same) ...
     if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
     try:
         s3_client.delete_object(Bucket=S3_BUCKET, Key=file_name)
     except Exception as e: print(f"Error deleting {file_name} from S3: {e}")
 
-# This function is no longer needed for viewing, but we'll keep it for other potential uses.
 def create_presigned_url(file_name: str, expiration=3600) -> str:
-    if not S3_BUCKET:
-        raise ValueError("S3_BUCKET_NAME environment variable is not set.")
+    if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME environment variable is not set.")
     try:
-        response = s3_client.generate_presigned_url('get_object', Params={'Bucket': S3_BUCKET, 'Key': file_name}, ExpiresIn=expiration)
+        response = s3_client.generate_presigned_url('get_object', Params={'Bucket': S3_BUCKET, 'Key': file_name, 'ResponseContentDisposition': 'inline'}, ExpiresIn=expiration)
     except ClientError as e:
         print(f"Error generating presigned URL: {e}")
         return None
     return response
 
 def extract_text_from_pdf(file_stream) -> str:
-    # ... (this function remains the same) ...
     file_content = file_stream.read()
     file_stream.seek(0)
     doc = fitz.open(stream=file_content, filetype="pdf")
@@ -201,7 +186,6 @@ def extract_text_from_pdf(file_stream) -> str:
     return text
 
 def analyze_document_text(text: str) -> dict:
-    # ... (this function remains the same) ...
     try:
         truncated_text = text[:120000]
         response = client.chat.completions.create( model="gpt-4o-mini", response_format={"type": "json_object"}, messages=[ {"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": truncated_text} ] )
