@@ -10,7 +10,7 @@ class FeedbackCreate(FeedbackBase):
 
 class Feedback(FeedbackBase):
     id: int
-    user_id: str # <-- ADD THIS LINE
+    user_id: str
     deal_id: int
     class Config:
         from_attributes = True
@@ -23,7 +23,7 @@ class DealBase(BaseModel):
 
 class Deal(DealBase):
     id: int
-    user_id: str # <-- ADD THIS LINE
+    user_id: str
     feedbacks: List[Feedback] = []
     class Config:
         from_attributes = True
