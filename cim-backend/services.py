@@ -4,12 +4,16 @@ import fitz
 from openai import OpenAI
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
+# --- NEW: Import the industry list from its own file ---
+from industry_list import IBIS_INDUSTRIES
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=90.0)
 S3_BUCKET = os.getenv("S3_BUCKET_NAME")
 s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'), aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'), region_name=os.getenv('AWS_REGION'))
 
-SYSTEM_PROMPT = """
+# --- UPDATED: System Prompt ---
+# The prompt now dynamically inserts the imported list.
+SYSTEM_PROMPT = f"""
 You are a top-tier private equity analyst. Your task is to analyze a Confidential Information Memorandum (CIM) or teaser text and return a structured, highly detailed JSON object for investment committee review.
 
 You must extract only **explicitly stated** information — do not guess, infer, or interpolate values. If something is not clearly present in the text, return "N/A".
@@ -23,6 +27,13 @@ This output will be read carefully by professional investors — your goal is to
 - Do not interpret, speculate, or hallucinate.
 - Always return "N/A" if data is incomplete or implied.
 - All dollar values must be in **millions** and clearly labeled (e.g., "$5.3M").
+
+---
+
+🏢 IBIS INDUSTRY SELECTION:
+- Based on the company's description, select one or more applicable industries from the provided list.
+- The output for `ibis_industries` MUST be a JSON array of strings.
+- Only choose from this exact list: {json.dumps(IBIS_INDUSTRIES)}
 
 ---
 
@@ -78,14 +89,15 @@ The final JSON must include this section. Do not omit it under any condition.
 📝 STRUCTURED OUTPUT FORMAT:
 
 ```json
-{
-  "company": {
+{{
+  "company": {{
     "name": "[Company name]",
     "description": "[One-sentence description of what the company does]"
-  },
+  }},
   "industry": "[Primary industry and sub-industry]",
-  "financials": {
-    "actuals": {
+  "ibis_industries": ["[Industry from list]", "[Optional second industry]"],
+  "financials": {{
+    "actuals": {{
       "revenue": "[e.g., '$39.9M']", 
       "year": "[e.g., '2023']",
       "ebitda": "[e.g., '$3.8M']",
@@ -94,34 +106,34 @@ The final JSON must include this section. Do not omit it under any condition.
       "capex": "[e.g., '$1.2M']",
       "capex_pct_revenue": "[e.g., '3.1%']",
       "fcf": "[e.g., '$2.5M']"
-    },
-    "estimates": {
+    }},
+    "estimates": {{
       "revenue": "[e.g., '$45.2M']",
       "year": "[e.g., '2024']",
       "ebitda": "[e.g., '$5.1M']",
       "fcf": "[e.g., '$3.0M']",
       "capex": "[e.g., '$1.5M']",
       "capex_pct_revenue": "[e.g., '3.3%']"
-    }
-  },
-    "growth": {
+    }}
+  }},
+    "growth": {{
       "historical_revenue_cagr": "1.2% (2021–2023)",
       "projected_revenue_cagr": "-3.4% (2023–2024)",
       "historical_fcf_cagr": "N/A",
       "projected_fcf_cagr": "N/A",
-      "growth_commentary": "- Revenue declined in 2023 and is projected to fall further in 2024.\n- Projected CAGR is negative, indicating a period of potential contraction.\n- Strong backlog may provide recovery buffer in out years."
-}
+      "growth_commentary": "- Revenue declined in 2023 and is projected to fall further in 2024.\\n- Projected CAGR is negative, indicating a period of potential contraction.\\n- Strong backlog may provide recovery buffer in out years."
+}}
 
-  "thesis": "- [Bullet point 1]\n- [Bullet point 2]\n- [Bullet point 3]",
-  "red_flags": "- [Bullet point 1]\n- [Bullet point 2]\n- [Bullet point 3]",
+  "thesis": "- [Bullet point 1]\\n- [Bullet point 2]\\n- [Bullet point 3]",
+  "red_flags": "- [Bullet point 1]\\n- [Bullet point 2]\\n- [Bullet point 3]",
   "summary": "[Detailed summary (300–450 words), clear, data-rich, and free of fluff. Summarize financial performance, product model, customers, headwinds, and competitive position.]",
   "confidence_score": [0–100],
   "flagged_fields": ["List all vague, projected, or estimated fields"],
-  "confidence_breakdown": {
+  "confidence_breakdown": {{
     "company": 0,
     "industry": 0,
-    "financials": {
-      "actuals": {
+    "financials": {{
+      "actuals": {{
         "revenue": 0,
         "ebitda": 0,
         "margin": 0,
@@ -129,31 +141,28 @@ The final JSON must include this section. Do not omit it under any condition.
         "capex": 0,
         "capex_pct_revenue": 0,
         "fcf": 0
-      },
-      "estimates": {
+      }},
+      "estimates": {{
         "revenue": 0,
         "ebitda": 0,
         "capex": 0,
         "capex_pct_revenue": 0,
         "fcf": 0
-      }
-    },
+      }}
+    }},
     "growth": 0,
     "thesis": 0,
     "red_flags": 0,
     "summary": 0
-  },
+  }},
   "low_confidence_flags": [
     "revenue: 2024 figure is projected based on management estimates",
     "capex: future year value provided with no historical baseline"
   ]
-}
-
+}}
+```
 """
 
-
-
-# *** NEW FUNCTION ***
 def get_s3_object_stream(file_name: str):
     """Gets a streaming body of an object from S3."""
     if not S3_BUCKET:
@@ -166,7 +175,6 @@ def get_s3_object_stream(file_name: str):
         return None
 
 def upload_to_s3(file_stream, file_name: str) -> str:
-    # ... (this function remains the same) ...
     if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
     try:
         s3_client.upload_fileobj(file_stream, S3_BUCKET, file_name)
@@ -174,13 +182,11 @@ def upload_to_s3(file_stream, file_name: str) -> str:
     except Exception as e: raise e
 
 def delete_from_s3(file_name: str):
-    # ... (this function remains the same) ...
     if not S3_BUCKET: raise ValueError("S3_BUCKET_NAME not set.")
     try:
         s3_client.delete_object(Bucket=S3_BUCKET, Key=file_name)
     except Exception as e: print(f"Error deleting {file_name} from S3: {e}")
 
-# This function is no longer needed for viewing, but we'll keep it for other potential uses.
 def create_presigned_url(file_name: str, expiration=3600) -> str:
     if not S3_BUCKET:
         raise ValueError("S3_BUCKET_NAME environment variable is not set.")
@@ -192,7 +198,6 @@ def create_presigned_url(file_name: str, expiration=3600) -> str:
     return response
 
 def extract_text_from_pdf(file_stream) -> str:
-    # ... (this function remains the same) ...
     file_content = file_stream.read()
     file_stream.seek(0)
     doc = fitz.open(stream=file_content, filetype="pdf")
@@ -201,7 +206,6 @@ def extract_text_from_pdf(file_stream) -> str:
     return text
 
 def analyze_document_text(text: str) -> dict:
-    # ... (this function remains the same) ...
     try:
         truncated_text = text[:120000]
         response = client.chat.completions.create( model="gpt-4o-mini", response_format={"type": "json_object"}, messages=[ {"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": truncated_text} ] )
