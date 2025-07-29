@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Dict, Optional
+from typing import List, Dict
 from starlette.responses import StreamingResponse, JSONResponse
 import io
 import base64
@@ -23,7 +23,6 @@ if not clerk_secret_key:
     raise ValueError("CLERK_SECRET_KEY environment variable not found.")
 clerk = Clerk(bearer_auth=clerk_secret_key)
 
-# --- Secret key for securing the email webhook ---
 EMAIL_WEBHOOK_SECRET = os.getenv("EMAIL_WEBHOOK_SECRET")
 if not EMAIL_WEBHOOK_SECRET:
     raise ValueError("EMAIL_WEBHOOK_SECRET environment variable not found.")
@@ -39,15 +38,24 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# --- NEW: Root Endpoint for Health Checks ---
+@app.get("/")
+def read_root():
+    """
+    A simple endpoint to confirm the API is running.
+    This is useful for Render's health checks.
+    """
+    return {"status": "IIP API is running"}
+
+
 # --- Pydantic Models for Resend Webhook Payload ---
 class ResendAttachment(BaseModel):
     filename: str
-    content: str  # This is a base64 encoded string
+    content: str
 
 class ResendInboundEmail(BaseModel):
     subject: Optional[str] = "No Subject"
     attachments: Optional[List[ResendAttachment]] = []
-
 
 # --- Existing Authentication and Helper Functions ---
 def get_current_user(req: Request) -> Dict:
@@ -89,20 +97,18 @@ def perform_analysis_and_update(deal_id: int, file_contents: bytes, file_name: s
     finally:
         db.close()
 
-# --- UPDATED: Email Ingest Webhook for Resend ---
+# --- Email Ingest Webhook for Resend ---
 @app.post("/api/webhooks/email-ingest")
 async def email_ingest_webhook(
     request: Request,
-    payload: ResendInboundEmail, # Use Pydantic model to parse JSON body
+    payload: ResendInboundEmail,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    # Secure the webhook with a secret key
     auth_token = request.headers.get("Authorization")
     if auth_token != f"Bearer {EMAIL_WEBHOOK_SECRET}":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook secret")
 
-    # Find the first PDF attachment in the payload
     pdf_attachment = None
     if payload.attachments:
         for attachment in payload.attachments:
@@ -113,7 +119,6 @@ async def email_ingest_webhook(
     if not pdf_attachment:
         return JSONResponse(content={"message": "No PDF attachment found."}, status_code=200)
 
-    # Decode the base64 content of the PDF
     try:
         file_contents = base64.b64decode(pdf_attachment.content)
     except Exception:
@@ -122,7 +127,6 @@ async def email_ingest_webhook(
     file_name = pdf_attachment.filename
     deal_title = payload.subject or file_name
 
-    # Create an initial Deal record
     new_deal = models.Deal(
         user_id="system-auto-import", 
         user_name="Auto-Import",
@@ -133,14 +137,12 @@ async def email_ingest_webhook(
     db.commit()
     db.refresh(new_deal)
 
-    # Start the background analysis
     background_tasks.add_task(perform_analysis_and_update, new_deal.id, file_contents, file_name)
 
     return JSONResponse(content={"message": "Email received and processing started."}, status_code=200)
 
 
 # --- Existing User-Facing Endpoints ---
-# ... (all other endpoints remain the same)
 @app.get("/api/deals", response_model=List[schemas.Deal])
 def get_all_deals(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     deals = db.query(models.Deal).order_by(models.Deal.id.desc()).all()
@@ -172,6 +174,7 @@ async def analyze_document(
     background_tasks.add_task(perform_analysis_and_update, new_deal.id, file_contents, file.filename)
     return new_deal
 
+# ... (all other endpoints remain the same)
 @app.post("/api/deals/{deal_id}/feedback", response_model=schemas.Feedback)
 def create_feedback_for_deal(deal_id: int, feedback: schemas.FeedbackCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     user_id = current_user.get("sub")
