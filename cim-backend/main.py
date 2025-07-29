@@ -5,7 +5,8 @@ import os
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Dict
+# --- FIX: Import List, Dict, and Optional ---
+from typing import List, Dict, Optional
 from starlette.responses import StreamingResponse, JSONResponse
 import io
 import base64
@@ -38,7 +39,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# --- NEW: Root Endpoint for Health Checks ---
+# --- Root Endpoint for Health Checks ---
 @app.get("/")
 def read_root():
     """
