@@ -12,7 +12,6 @@ import base64
 from pydantic import BaseModel
 
 from clerk_backend_api import Clerk
-# FIX: Import AuthenticateRequestOptions to resolve the authentication error
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 
 import models, schemas, services
@@ -28,15 +27,16 @@ EMAIL_WEBHOOK_SECRET = os.getenv("EMAIL_WEBHOOK_SECRET")
 if not EMAIL_WEBHOOK_SECRET:
     raise ValueError("EMAIL_WEBHOOK_SECRET environment variable not found.")
 
-# --- FIX: Use a regular expression for more flexible CORS handling ---
-# This allows requests from localhost and any subdomain of vercel.app,
-# which is more robust for preview and production deployments.
-ALLOWED_ORIGIN_REGEX = os.getenv("ALLOWED_ORIGIN_REGEX", r"http://localhost:3000")
+# --- FIX: Updated CORS Configuration ---
+# We will now read a comma-separated list of allowed domains.
+# This is more explicit and easier to manage than a regex.
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(',')]
 
 app = FastAPI(title="IIP API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=ALLOWED_ORIGIN_REGEX, # Use the regex here
+    allow_origins=allowed_origins, # Use the list of origins here
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -57,11 +57,9 @@ class ResendInboundEmail(BaseModel):
     subject: Optional[str] = "No Subject"
     attachments: Optional[List[ResendAttachment]] = []
 
-# --- Existing Authentication and Helper Functions ---
+# --- Authentication and Helper Functions ---
 def get_current_user(req: Request) -> Dict:
     try:
-        # FIX: Pass the required 'options' argument to the authenticate_request method.
-        # This is the primary fix for the "missing 1 required positional argument: 'options'" error.
         request_state = clerk.authenticate_request(req, options=AuthenticateRequestOptions())
         if not request_state.is_signed_in:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
