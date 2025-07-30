@@ -5,7 +5,6 @@ import os
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-# --- FIX: Import List, Dict, and Optional ---
 from typing import List, Dict, Optional
 from starlette.responses import StreamingResponse, JSONResponse
 import io
@@ -42,10 +41,6 @@ app.add_middleware(
 # --- Root Endpoint for Health Checks ---
 @app.get("/")
 def read_root():
-    """
-    A simple endpoint to confirm the API is running.
-    This is useful for Render's health checks.
-    """
     return {"status": "IIP API is running"}
 
 
@@ -175,23 +170,32 @@ async def analyze_document(
     background_tasks.add_task(perform_analysis_and_update, new_deal.id, file_contents, file.filename)
     return new_deal
 
-# ... (all other endpoints remain the same)
+# --- FIX: Reverted endpoint to only create new feedback, not update ---
 @app.post("/api/deals/{deal_id}/feedback", response_model=schemas.Feedback)
 def create_feedback_for_deal(deal_id: int, feedback: schemas.FeedbackCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     user_id = current_user.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID not found in token")
-    first_name = current_user.get("first_name", "")
-    last_name = current_user.get("last_name", "")
-    user_name = f"{first_name} {last_name}".strip() or "Anonymous"
+    
     db_deal = db.query(models.Deal).filter(models.Deal.id == deal_id).first()
     if db_deal is None: 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deal not found")
-    db_feedback = models.Feedback(**feedback.dict(), deal_id=deal_id, user_id=user_id, user_name=user_name)
+
+    # Always create a new feedback entry
+    first_name = current_user.get("first_name", "")
+    last_name = current_user.get("last_name", "")
+    user_name = f"{first_name} {last_name}".strip() or "Anonymous"
+    db_feedback = models.Feedback(
+        **feedback.dict(), 
+        deal_id=deal_id, 
+        user_id=user_id, 
+        user_name=user_name
+    )
     db.add(db_feedback)
     db.commit()
     db.refresh(db_feedback)
     return db_feedback
+
 
 @app.delete("/api/deals/{deal_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_deal(deal_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
