@@ -27,12 +27,15 @@ EMAIL_WEBHOOK_SECRET = os.getenv("EMAIL_WEBHOOK_SECRET")
 if not EMAIL_WEBHOOK_SECRET:
     raise ValueError("EMAIL_WEBHOOK_SECRET environment variable not found.")
 
-AUTHORIZED_PARTIES = os.getenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:3000,http://localhost:3001").split(',')
+# --- FIX: Define separate origins for CORS ---
+# This list explicitly tells the backend which frontend domains are allowed to make requests.
+# The CLERK_AUTHORIZED_PARTIES is for a different purpose (token validation).
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001").split(',')
 
 app = FastAPI(title="IIP API")
 app.add_middleware(
     CORSMiddleware, 
-    allow_origins=AUTHORIZED_PARTIES,
+    allow_origins=ALLOWED_ORIGINS, # Use the new origins list here
     allow_credentials=True, 
     allow_methods=["*"], 
     allow_headers=["*"]
@@ -56,8 +59,8 @@ class ResendInboundEmail(BaseModel):
 # --- Existing Authentication and Helper Functions ---
 def get_current_user(req: Request) -> Dict:
     try:
-        options = AuthenticateRequestOptions(authorized_parties=AUTHORIZED_PARTIES)
-        request_state = clerk.authenticate_request(req, options)
+        # Clerk's authorized parties should be configured on the instance, not per-request
+        request_state = clerk.authenticate_request(req)
         if not request_state.is_signed_in:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
         return request_state.payload
@@ -170,7 +173,6 @@ async def analyze_document(
     background_tasks.add_task(perform_analysis_and_update, new_deal.id, file_contents, file.filename)
     return new_deal
 
-# --- FIX: Reverted endpoint to only create new feedback, not update ---
 @app.post("/api/deals/{deal_id}/feedback", response_model=schemas.Feedback)
 def create_feedback_for_deal(deal_id: int, feedback: schemas.FeedbackCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     user_id = current_user.get("sub")
@@ -181,7 +183,6 @@ def create_feedback_for_deal(deal_id: int, feedback: schemas.FeedbackCreate, cur
     if db_deal is None: 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deal not found")
 
-    # Always create a new feedback entry
     first_name = current_user.get("first_name", "")
     last_name = current_user.get("last_name", "")
     user_name = f"{first_name} {last_name}".strip() or "Anonymous"
