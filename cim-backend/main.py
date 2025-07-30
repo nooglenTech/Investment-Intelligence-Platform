@@ -12,6 +12,7 @@ import base64
 from pydantic import BaseModel
 
 from clerk_backend_api import Clerk
+# FIX: Import AuthenticateRequestOptions to resolve the authentication error
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 
 import models, schemas, services
@@ -59,7 +60,9 @@ class ResendInboundEmail(BaseModel):
 # --- Existing Authentication and Helper Functions ---
 def get_current_user(req: Request) -> Dict:
     try:
-        request_state = clerk.authenticate_request(req)
+        # FIX: Pass the required 'options' argument to the authenticate_request method.
+        # This is the primary fix for the "missing 1 required positional argument: 'options'" error.
+        request_state = clerk.authenticate_request(req, options=AuthenticateRequestOptions())
         if not request_state.is_signed_in:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
         return request_state.payload
