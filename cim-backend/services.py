@@ -208,7 +208,7 @@ def extract_text_from_pdf(file_stream) -> str:
 def analyze_document_text(text: str) -> dict:
     try:
         truncated_text = text[:120000]
-        response = client.chat.completions.create( model="gpt-4o-mini", response_format={"type": "json_object"}, messages=[ {"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": truncated_text} ] )
+        response = client.chat.completions.create( model="gpt-4o", response_format={"type": "json_object"}, messages=[ {"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": truncated_text} ] )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")

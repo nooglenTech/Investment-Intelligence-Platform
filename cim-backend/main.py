@@ -27,17 +27,17 @@ EMAIL_WEBHOOK_SECRET = os.getenv("EMAIL_WEBHOOK_SECRET")
 if not EMAIL_WEBHOOK_SECRET:
     raise ValueError("EMAIL_WEBHOOK_SECRET environment variable not found.")
 
-# --- FIX: Define separate origins for CORS ---
-# This list explicitly tells the backend which frontend domains are allowed to make requests.
-# The CLERK_AUTHORIZED_PARTIES is for a different purpose (token validation).
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001").split(',')
+# --- FIX: Use a regular expression for more flexible CORS handling ---
+# This allows requests from localhost and any subdomain of vercel.app,
+# which is more robust for preview and production deployments.
+ALLOWED_ORIGIN_REGEX = os.getenv("ALLOWED_ORIGIN_REGEX", r"http://localhost:3000")
 
 app = FastAPI(title="IIP API")
 app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=ALLOWED_ORIGINS, # Use the new origins list here
-    allow_credentials=True, 
-    allow_methods=["*"], 
+    CORSMiddleware,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX, # Use the regex here
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"]
 )
 
@@ -59,7 +59,6 @@ class ResendInboundEmail(BaseModel):
 # --- Existing Authentication and Helper Functions ---
 def get_current_user(req: Request) -> Dict:
     try:
-        # Clerk's authorized parties should be configured on the instance, not per-request
         request_state = clerk.authenticate_request(req)
         if not request_state.is_signed_in:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
