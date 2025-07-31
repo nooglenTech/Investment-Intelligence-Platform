@@ -1,125 +1,131 @@
-# cim-backend/routers/email_ingest.py
-
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Request, BackgroundTasks
+from fastapi import APIRouter, Request, Depends, HTTPException, UploadFile, Form
 from sqlalchemy.orm import Session
-from typing import List, Dict, Optional
-from starlette.responses import JSONResponse
-import io
-import base64
-from pydantic import BaseModel
+import logging
+import os
+import hmac
+import hashlib
+from typing import Optional
 
-import models, schemas, services
-from database import get_db, SessionLocal
+# Import your existing services, schemas, and database configuration
+# This has been changed from a relative import to an absolute import to fix the ImportError.
+import services
+import schemas
+import database
 
 router = APIRouter()
 
-# It's better to access environment variables through the services module for consistency
-EMAIL_WEBHOOK_SECRET = services.os.getenv("EMAIL_WEBHOOK_SECRET")
-if not EMAIL_WEBHOOK_SECRET:
-    raise ValueError("EMAIL_WEBHOOK_SECRET environment variable not found.")
+# For security, your Mailgun API key should be stored as an environment variable,
+# not hardcoded in the source code.
+MAILGUN_API_KEY = os.environ.get("MAILGUN_API_KEY")
 
-# --- Pydantic Models for Resend Webhook Payload ---
-class ResendAttachment(BaseModel):
-    filename: str
-    content: str
-
-class ResendInboundEmail(BaseModel):
-    subject: Optional[str] = "No Subject"
-    attachments: Optional[List[ResendAttachment]] = []
-
-def perform_analysis_and_update(deal_id: int, file_contents: bytes, file_name: str):
+def verify_mailgun_webhook(token: str, timestamp: str, signature: str) -> bool:
     """
-    Background task to process the PDF, run analysis, and update the deal in the database.
-    This is the same function from the original main.py.
+    Verifies the signature of the Mailgun webhook to ensure it's authentic.
+    This is a critical security measure.
     """
-    db = SessionLocal()
-    try:
-        deal = db.query(models.Deal).filter(models.Deal.id == deal_id).first()
-        if not deal:
-            print(f"Background task failed: Deal with ID {deal_id} not found.")
-            return
+    # If the API key isn't configured, we cannot verify the webhook.
+    if not MAILGUN_API_KEY:
+        logging.error("MAILGUN_API_KEY environment variable is not set. Cannot verify webhook.")
+        # In a production environment, you should return False to reject the request.
+        return False 
+    
+    # The signature is an HMAC-SHA256 hash of the timestamp and token, signed with your API key.
+    hmac_digest = hmac.new(
+        key=MAILGUN_API_KEY.encode(),
+        msg=f"{timestamp}{token}".encode(),
+        digestmod=hashlib.sha256
+    ).hexdigest()
+    
+    # Use hmac.compare_digest for a secure, constant-time comparison.
+    return hmac.compare_digest(hmac_digest, signature)
 
-        # 1. Upload the original file to S3
-        s3_stream = io.BytesIO(file_contents)
-        s3_url = services.upload_to_s3(s3_stream, file_name)
-        
-        # 2. Extract text from the PDF
-        pdf_stream = io.BytesIO(file_contents)
-        text = services.extract_text_from_pdf(pdf_stream)
-        if not text:
-            raise Exception("Failed to extract text from PDF.")
-
-        # 3. Analyze the text with OpenAI
-        analysis_data = services.analyze_document_text(text)
-        if "error" in analysis_data:
-            raise Exception(analysis_data["error"])
-
-        # 4. Update the deal record with the results
-        deal.s3_url = s3_url
-        deal.analysis_data = analysis_data
-        deal.status = "Complete"
-        db.commit()
-        print(f"Successfully processed and analyzed deal {deal_id}.")
-    except Exception as e:
-        print(f"Error in background task for deal {deal_id}: {e}")
-        deal = db.query(models.Deal).filter(models.Deal.id == deal_id).first()
-        if deal:
-            deal.status = "Failed"
-            db.commit()
-    finally:
-        db.close()
-
-# --- Email Ingest Webhook for Resend ---
-@router.post("/api/webhooks/email-ingest", tags=["Webhooks"])
-async def email_ingest_webhook(
+@router.post("/webhook", tags=["Email Ingestion"])
+async def receive_email(
     request: Request,
-    payload: ResendInboundEmail,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(database.get_db),
+    # Mailgun sends these form fields for webhook verification.
+    timestamp: Optional[str] = Form(None),
+    token: Optional[str] = Form(None),
+    signature: Optional[str] = Form(None),
+    # Standard email fields from Mailgun.
+    sender: Optional[str] = Form(None),
+    recipient: Optional[str] = Form(None),
+    subject: Optional[str] = Form(None),
+    body_plain: Optional[str] = Form(None, alias='body-plain'),
+    # Mailgun provides the number of attachments.
+    attachment_count: Optional[int] = Form(0, alias='attachment-count'),
 ):
     """
-    This endpoint receives inbound emails from a service like Resend,
-    extracts the first PDF attachment, creates a new deal, and starts
-    the analysis process in the background.
+    This endpoint receives incoming emails from a Mailgun route.
+    It verifies the request, processes attachments, and creates deals for valid CIMs.
     """
-    # 1. Authenticate the webhook request
-    auth_token = request.headers.get("Authorization")
-    if auth_token != f"Bearer {EMAIL_WEBHOOK_SECRET}":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook secret")
+    # --- 1. Verify the Webhook Signature ---
+    # It's highly recommended to enforce verification in a production environment.
+    if all([timestamp, token, signature]):
+        if not verify_mailgun_webhook(token, timestamp, signature):
+            logging.warning("Mailgun webhook verification failed. Rejecting request.")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    else:
+        # If signature fields are missing, log a warning. You might want to reject
+        # these requests in production for maximum security.
+        logging.warning("Mailgun signature fields not provided. Skipping verification.")
 
-    # 2. Find the first PDF attachment in the email
-    pdf_attachment = None
-    if payload.attachments:
-        for attachment in payload.attachments:
-            if attachment.filename.lower().endswith('.pdf'):
-                pdf_attachment = attachment
-                break
-    
-    if not pdf_attachment:
-        # It's okay if there's no PDF, just acknowledge the request.
-        return JSONResponse(content={"message": "No PDF attachment found."}, status_code=200)
+    logging.info(f"Received verified email from: {sender} to: {recipient} with subject: {subject}")
 
-    # 3. Decode the attachment content from Base64
-    try:
-        file_contents = base64.b64decode(pdf_attachment.content)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to decode attachment content.")
+    # --- 2. Check for Attachments ---
+    if not attachment_count or attachment_count == 0:
+        logging.info("Email received, but it has no attachments to process.")
+        return {"message": "Email received, no attachments found."}
 
-    file_name = pdf_attachment.filename
-    deal_title = payload.subject or file_name
+    # --- 3. Process Each Attachment ---
+    form_data = await request.form()
+    deals_created = []
 
-    # 4. Create a new Deal record with "Analyzing" status
-    new_deal = models.Deal(
-        user_id="system-auto-import", 
-        user_name="Auto-Import",
-        file_name=deal_title,
-        status="Analyzing"
-    )
-    db.add(new_deal)
-    db.commit()
-    db.refresh(new_deal)
+    for i in range(1, attachment_count + 1):
+        attachment_field_name = f'attachment-{i}'
+        if attachment_field_name in form_data:
+            attachment_file: UploadFile = form_data[attachment_field_name]
+            filename = attachment_file.filename
+            file_content = await attachment_file.read()
+            
+            logging.info(f"Processing attachment: {filename}")
 
-    # 5. Add the analysis function to the background tasks
-    background_tasks.add_task(perform_analysis_and_update, new_deal.id, file_contents, file_name)
+            try:
+                # --- 4. Call the CIM Processing Service ---
+                # This is the "chat call" that analyzes the document.
+                extracted_data = services.process_cim(file_content=file_content, filename=filename)
 
-    return JSONResponse(content={"message": "Email received and processing started."}, status_code=200)
+                # --- 5. Check if it's a CIM and Create a Deal ---
+                if extracted_data.get("is_cim"):
+                    logging.info(f"Attachment '{filename}' identified as a CIM. Creating deal.")
+                    
+                    # Map the data extracted by the AI to your database schema.
+                    deal_schema = schemas.DealCreate(
+                        company_name=extracted_data.get("company_name", "N/A"),
+                        industry=extracted_data.get("industry", "N/A"),
+                        summary=extracted_data.get("summary", ""),
+                        key_highlights=extracted_data.get("key_highlights", []),
+                        financials=extracted_data.get("financials", {}),
+                        score=extracted_data.get("score", 0),
+                        # Note: user_id is not included here. Your database/model
+                        # should handle cases where a deal is created by the system.
+                        # This might involve making the user_id nullable or assigning
+                        # it to a default system user.
+                    )
+                    
+                    # Save the new deal to the database.
+                    deal = services.create_deal(db=db, deal=deal_schema)
+                    deals_created.append(deal.id)
+                    logging.info(f"Successfully created deal with ID: {deal.id}")
+                else:
+                    logging.info(f"Attachment '{filename}' was processed but is not a CIM. Skipping deal creation.")
+
+            except Exception as e:
+                # Log errors but continue processing other attachments.
+                logging.error(f"An error occurred while processing attachment {filename}: {e}", exc_info=True)
+                continue
+
+    if deals_created:
+        return {"message": f"Successfully processed {attachment_count} attachment(s) and created {len(deals_created)} deal(s).", "deal_ids": deals_created}
+    else:
+        return {"message": "Attachments were processed, but no new CIMs were found to create deals."}

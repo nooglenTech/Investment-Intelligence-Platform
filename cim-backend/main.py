@@ -10,11 +10,13 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 from starlette.responses import StreamingResponse
 
+import io
+
 from clerk_backend_api import Clerk
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 
 import models, schemas, services
-from database import get_db
+from database import get_db, SessionLocal
 from routers import email_ingest # --- NEW: Import the email ingest router ---
 
 # --- Clerk and Security Setup ---
@@ -36,7 +38,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# --- Include Routers ---
+# --- NEW: Include the new router for email webhooks ---
 app.include_router(email_ingest.router)
 
 # --- Root Endpoint for Health Checks ---
@@ -44,7 +46,7 @@ app.include_router(email_ingest.router)
 def read_root():
     return {"status": "IIP API is running"}
 
-# --- Authentication Helper ---
+# --- Authentication and Helper Functions ---
 def get_current_user(req: Request) -> Dict:
     try:
         request_state = clerk.authenticate_request(req, options=AuthenticateRequestOptions())
@@ -53,6 +55,38 @@ def get_current_user(req: Request) -> Dict:
         return request_state.payload
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Authentication error: {e}")
+
+def perform_analysis_and_update(deal_id: int, file_contents: bytes, file_name: str):
+    """
+    Background task to process a user-uploaded PDF, run analysis, and update the deal.
+    """
+    db = SessionLocal()
+    try:
+        deal = db.query(models.Deal).filter(models.Deal.id == deal_id).first()
+        if not deal: return
+
+        s3_stream = io.BytesIO(file_contents)
+        s3_url = services.upload_to_s3(s3_stream, file_name)
+        
+        pdf_stream = io.BytesIO(file_contents)
+        text = services.extract_text_from_pdf(pdf_stream)
+        if not text: raise Exception("Failed to extract text from PDF.")
+
+        analysis_data = services.analyze_document_text(text)
+        if "error" in analysis_data: raise Exception(analysis_data["error"])
+
+        deal.s3_url = s3_url
+        deal.analysis_data = analysis_data
+        deal.status = "Complete"
+        db.commit()
+    except Exception as e:
+        print(f"Error in background task for deal {deal_id}: {e}")
+        deal = db.query(models.Deal).filter(models.Deal.id == deal_id).first()
+        if deal:
+            deal.status = "Failed"
+            db.commit()
+    finally:
+        db.close()
 
 # --- User-Facing API Endpoints ---
 
@@ -69,10 +103,7 @@ async def analyze_document(
     file: UploadFile = File(...), 
     db: Session = Depends(get_db)
 ):
-    """
-    Endpoint for manual user uploads. Creates a deal record and triggers the
-    background task for pre-analysis and full processing.
-    """
+    """Endpoint for manual user uploads via the web interface."""
     user_id = current_user.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID not found in token")
@@ -83,19 +114,17 @@ async def analyze_document(
     
     file_contents = await file.read()
     
-    # Create the initial deal record
     new_deal = models.Deal(
         user_id=user_id, 
         user_name=user_name,
         file_name=file.filename,
-        status="Analyzing" # Initial status
+        status="Analyzing"
     )
     db.add(new_deal)
     db.commit()
     db.refresh(new_deal)
     
-    # --- MODIFIED: Call the new centralized processing function ---
-    background_tasks.add_task(services.process_uploaded_pdf, new_deal.id, file_contents, file.filename)
+    background_tasks.add_task(perform_analysis_and_update, new_deal.id, file_contents, file.filename)
     
     return new_deal
 
